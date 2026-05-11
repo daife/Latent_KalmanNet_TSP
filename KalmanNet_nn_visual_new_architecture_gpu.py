@@ -24,6 +24,12 @@ class KalmanNetLatentNN(torch.nn.Module):
         super().__init__()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.dataset_name = dataset_name
+
+    def _model_device(self):
+        try:
+            return next(self.parameters()).device
+        except StopIteration:
+            return self.device
     ######################################
     ### Initialize Kalman Gain Network ###
     ######################################
@@ -160,11 +166,13 @@ class KalmanNetLatentNN(torch.nn.Module):
     ### Initialize Sequence ###
     ###########################
     def InitSequence(self, M1_0, T):
+        device = self._model_device()
         self.T = T
-        self.x_out = torch.empty(self.m, T).to(dev, non_blocking=True)
-        self.m1x_posterior = M1_0.to(dev, non_blocking=True)
-        self.m1x_posterior_previous = self.m1x_posterior.to(dev, non_blocking=True)
-        self.m1x_prior_previous = self.m1x_posterior.to(dev, non_blocking=True)
+        self.H = self.H.to(device, non_blocking=True)
+        self.x_out = torch.empty(self.m, T, device=device)
+        self.m1x_posterior = M1_0.to(device, non_blocking=True)
+        self.m1x_posterior_previous = self.m1x_posterior.to(device, non_blocking=True)
+        self.m1x_prior_previous = self.m1x_posterior.to(device, non_blocking=True)
         self.y_previous = torch.matmul(self.H,self.m1x_posterior.float())
             #.reshape(self.m, 1)
         self.i = 0
@@ -173,6 +181,9 @@ class KalmanNetLatentNN(torch.nn.Module):
     ### Compute Priors ###
     ######################
     def step_prior(self):
+        device = self._model_device()
+        self.H = self.H.to(device, non_blocking=True)
+        self.m1x_posterior = self.m1x_posterior.to(device, non_blocking=True)
         # Predict the 1-st moment of x
         if self.dataset_name == "Lorenz":
             self.m1x_prior = torch.matmul(self.f_function(self.m1x_posterior.float()),self.m1x_posterior.float())
@@ -230,9 +241,13 @@ class KalmanNetLatentNN(torch.nn.Module):
     ### Kalman Gain Step ###
     ########################
     def KGain_step(self, obs_diff, obs_innov_diff, fw_evol_diff, fw_update_diff):
+        device = self._model_device()
+        self.h_Q = self.h_Q.to(device, non_blocking=True)
+        self.h_Sigma = self.h_Sigma.to(device, non_blocking=True)
+        self.h_S = self.h_S.to(device, non_blocking=True)
 
         def expand_dim(x):
-            expanded = torch.empty(self.seq_len_input, self.batch_size, x.shape[-1])
+            expanded = torch.empty(self.seq_len_input, self.batch_size, x.shape[-1], device=device)
             expanded[0, 0, :] = x
             return expanded
 
@@ -308,7 +323,7 @@ class KalmanNetLatentNN(torch.nn.Module):
     ### Forward ###
     ###############
     def forward(self, y):
-        y = y.to(dev, non_blocking=True)
+        y = y.to(self._model_device(), non_blocking=True)
         '''
         for t in range(0, self.T):
             self.x_out[:, t] = self.KNet_step(y[:, t])
@@ -325,10 +340,10 @@ class KalmanNetLatentNN(torch.nn.Module):
         weight = next(self.parameters()).data
         hidden = weight.new(1, self.batch_size, self.d_hidden_S).zero_()
         self.h_S = hidden.data
-        self.h_S[0, 0, :] = self.prior_S.flatten()
+        self.h_S[0, 0, :] = self.prior_S.to(weight.device).flatten()
         hidden = weight.new(1, self.batch_size, self.d_hidden_Sigma).zero_()
         self.h_Sigma = hidden.data
-        self.h_Sigma[0, 0, :] = self.prior_Sigma.flatten()
+        self.h_Sigma[0, 0, :] = self.prior_Sigma.to(weight.device).flatten()
         hidden = weight.new(1, self.batch_size, self.d_hidden_Q).zero_()
         self.h_Q = hidden.data
-        self.h_Q[0, 0, :] = self.prior_Q.flatten()
+        self.h_Q[0, 0, :] = self.prior_Q.to(weight.device).flatten()

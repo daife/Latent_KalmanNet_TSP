@@ -23,6 +23,9 @@ class Pipeline_KF:
     def setLearnedModel(self, KNet_model):
         self.model = KNet_model
 
+    def model_device(self):
+        return next(self.model.parameters()).device
+
     def setTrainingParams(self, n_Epochs, n_Batch, learningRate, weightDecay):
         self.N_Epochs = n_Epochs  # Number of Training Epochs
         self.N_B = n_Batch # Number of Samples in Batch
@@ -99,22 +102,23 @@ class Pipeline_KF:
             fig.savefig(folder_learning_path + "/3D epoch {}.png".format(ti))
 
     def get_seq_knet_output(self,observation_seq , target, prior_flag):
+        device = self.model_device()
         if self.warm_start_flag:
             length_seq = observation_seq.shape[1]
         else:
             length_seq = observation_seq.shape[0]
-        x_out = torch.empty(self.ssModel.m, length_seq)
-        z_encoder_output = torch.empty(self.d, length_seq)
+        x_out = torch.empty(self.ssModel.m, length_seq, device=device)
+        z_encoder_output = torch.empty(self.d, length_seq, device=device)
         if self.dataset_name == "Pendulum":
-            state_prev = torch.from_numpy(np.array([90* torch.pi / 180,0])).unsqueeze(1)
+            state_prev = torch.tensor([90 * np.pi / 180, 0], device=device).unsqueeze(1)
         else:
-            state_prev = torch.ones(self.ssModel.m,1)
+            state_prev = torch.ones(self.ssModel.m, 1, device=device)
         for t in range(0, length_seq):
             if self.warm_start_flag:
-                y_decoaded = torch.from_numpy(observation_seq[:,t])[0]
+                y_decoaded = torch.as_tensor(observation_seq[:,t], device=device)[0]
                 z_encoder_output[:, t] = y_decoaded.clone()
             else:
-                AE_input = torch.from_numpy(np.expand_dims(observation_seq[t,:,:], axis=(0,1)))
+                AE_input = torch.as_tensor(np.expand_dims(observation_seq[t,:,:], axis=(0,1)), device=device)
                 self.model.model_encoder = self.model.model_encoder.float()
                 if prior_flag:
                     if self.dataset_name == "Pendulum":
@@ -189,21 +193,22 @@ class Pipeline_KF:
             for j in range(0, self.N_CV):
                 self.model.InitSequence(self.ssModel.m1x_0, self.ssModel.T)
                 y_cv = cv_input[j, :, :]
-                x_out_cv, z_encoder_output_cv = self.get_seq_knet_output(y_cv, cv_target[j, :, :],prior_flag)
+                cv_target_j = cv_target[j, :, :].to(self.model_device())
+                x_out_cv, z_encoder_output_cv = self.get_seq_knet_output(y_cv, cv_target_j,prior_flag)
                 # Compute Training Loss
                 if self.dataset_name =="Pendulum":
-                    MSE_cv_linear_batch[j] = self.loss_fn(x_out_cv[0,:], cv_target[j, 0, :]).detach()
-                    MSE_cv_linear_batch_encoder[j] = self.loss_fn(z_encoder_output_cv.float(),cv_target[j, 0, :].float())
+                    MSE_cv_linear_batch[j] = self.loss_fn(x_out_cv[0,:], cv_target_j[0, :]).detach()
+                    MSE_cv_linear_batch_encoder[j] = self.loss_fn(z_encoder_output_cv.float(),cv_target_j[0, :].float())
                 else:
-                    MSE_cv_linear_batch[j] = self.loss_fn(x_out_cv, cv_target[j, :, :]).detach()
-                    MSE_cv_linear_batch_encoder[j] = self.loss_fn(z_encoder_output_cv.float(), cv_target[j, :, :].float())
+                    MSE_cv_linear_batch[j] = self.loss_fn(x_out_cv, cv_target_j).detach()
+                    MSE_cv_linear_batch_encoder[j] = self.loss_fn(z_encoder_output_cv.float(), cv_target_j.float())
                 if MSE_cv_linear_batch[j].isnan() == True:
                     Itay = 29
                     MSE_cv_linear_batch[j] = 1
                     print("**** we have nan value ****")
                     #break
                 if j == 4:
-                    print("encoder output {} x state {} kalman output {}".format(z_encoder_output_cv[:, 10], cv_target[j, :, 10],x_out_cv[:, 10]))
+                    print("encoder output {} x state {} kalman output {}".format(z_encoder_output_cv[:, 10], cv_target_j[:, 10],x_out_cv[:, 10]))
             # Average
             self.MSE_cv_linear_epoch[ti] = torch.mean(MSE_cv_linear_batch)
             self.MSE_cv_dB_epoch[ti] = 10 * torch.log10(self.MSE_cv_linear_epoch[ti])
@@ -251,10 +256,11 @@ class Pipeline_KF:
                 n_e = random.randint(0, self.N_E - 1)
                 self.model.InitSequence(self.ssModel.m1x_0, self.ssModel.T)
                 y_training = train_input[n_e, :, :] # chosen trajectory to learn from
-                x_out_training, z_encoder_output_train = self.get_seq_knet_output(y_training, train_target[n_e, :, :], prior_flag)
+                train_target_j = train_target[n_e, :, :].to(self.model_device())
+                x_out_training, z_encoder_output_train = self.get_seq_knet_output(y_training, train_target_j, prior_flag)
                 # Compute Training Loss
-                LOSS = self.loss_fn(x_out_training.float(), train_target[n_e, :, :].float())
-                LOSS_Encoder = self.loss_fn(z_encoder_output_train.float(), train_target[n_e, :, :].float())
+                LOSS = self.loss_fn(x_out_training.float(), train_target_j.float())
+                LOSS_Encoder = self.loss_fn(z_encoder_output_train.float(), train_target_j.float())
                 MSE_train_linear_batch[j] = LOSS.detach()
                 MSE_train_linear_batch_encoder[j] = LOSS_Encoder.detach()
                 Batch_Optimizing_LOSS_sum = Batch_Optimizing_LOSS_sum + LOSS
@@ -294,31 +300,33 @@ class Pipeline_KF:
     #     plt.savefig(self.Learning_process_folderName +'Learning_curve.jpeg')
 
     def NNTest(self, n_Test, test_input, test_target,prior_flag,d):
+        device = self.model_device()
         length_seq = test_input.shape[1]
-        self.MSE_test_linear_arr = torch.empty([n_Test])
-        self.MSE_test_linear_arr_encoder = torch.empty([n_Test])
+        self.MSE_test_linear_arr = torch.empty([n_Test], device=device)
+        self.MSE_test_linear_arr_encoder = torch.empty([n_Test], device=device)
         # MSE LOSS Function
         loss_fn = nn.MSELoss(reduction='mean')
         self.model.eval()
-        torch.no_grad()
-        x_out_test_all = torch.empty(n_Test, self.ssModel.m, length_seq)
-        encoder_test_all = torch.empty(n_Test, d, length_seq)
+        x_out_test_all = torch.empty(n_Test, self.ssModel.m, length_seq, device=device)
+        encoder_test_all = torch.empty(n_Test, d, length_seq, device=device)
         Latent_KalmanNet_time = []
-        for j in range(0, n_Test): #running on each sample (trajectory)
-            start = time.time()
-            self.model.InitSequence(self.ssModel.m1x_0, self.ssModel.T_test)
-            y_mdl_tst = test_input[j, :, :] #taking the j observation sample (trajectory)
-            x_out, z_encoder_output = self.get_seq_knet_output(y_mdl_tst,test_target[j,:,:],prior_flag)
-            x_out_test_all[j,:,:] = x_out
-            encoder_test_all[j,:,:] = z_encoder_output
-            if self.dataset_name == "Pendulum":
-                self.MSE_test_linear_arr[j] = loss_fn(x_out[0,:], test_target[j, 0, :]).detach()
-                self.MSE_test_linear_arr_encoder[j] = loss_fn(z_encoder_output, test_target[j, 0, :]).detach()
-            else:
-                self.MSE_test_linear_arr[j] = loss_fn(x_out, test_target[j, :, :]).detach()
-                self.MSE_test_linear_arr_encoder[j]= loss_fn(z_encoder_output, test_target[j, :, :]).detach()
-            print(j)
-            Latent_KalmanNet_time.append(time.time() - start)
+        with torch.no_grad():
+            for j in range(0, n_Test): #running on each sample (trajectory)
+                start = time.time()
+                self.model.InitSequence(self.ssModel.m1x_0, self.ssModel.T_test)
+                y_mdl_tst = test_input[j, :, :] #taking the j observation sample (trajectory)
+                test_target_j = test_target[j,:,:].to(device)
+                x_out, z_encoder_output = self.get_seq_knet_output(y_mdl_tst,test_target_j,prior_flag)
+                x_out_test_all[j,:,:] = x_out
+                encoder_test_all[j,:,:] = z_encoder_output
+                if self.dataset_name == "Pendulum":
+                    self.MSE_test_linear_arr[j] = loss_fn(x_out[0,:], test_target_j[0, :]).detach()
+                    self.MSE_test_linear_arr_encoder[j] = loss_fn(z_encoder_output, test_target_j[0, :]).detach()
+                else:
+                    self.MSE_test_linear_arr[j] = loss_fn(x_out, test_target_j).detach()
+                    self.MSE_test_linear_arr_encoder[j]= loss_fn(z_encoder_output, test_target_j).detach()
+                print(j)
+                Latent_KalmanNet_time.append(time.time() - start)
         #print("Latent KalmanNet average time for trajectory is {}".format(mean(Latent_KalmanNet_time)))
         ####### Latent KalmanNet #####################
         # Average

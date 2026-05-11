@@ -17,6 +17,15 @@ def define_dev():
     print("Running on the CPU")
   return dev
 
+def torch_load_compat(path, map_location=None, weights_only=True):
+  try:
+    return torch.load(path, map_location=map_location, weights_only=weights_only)
+  except TypeError:
+    return torch.load(path, map_location=map_location)
+
+def module_device(module):
+  return next(module.parameters()).device
+
 def train_with_prior(path_enc, encoder, train_input, train_target, cv_input, cv_target, num_epochs,batch_size):
     encoder.train()
     encoder.float()
@@ -27,18 +36,19 @@ def train_with_prior(path_enc, encoder, train_input, train_target, cv_input, cv_
     params_to_optimize = [{'params': encoder.parameters()}]
     optimizer = torch.optim.Adam(params_to_optimize, lr=lr, weight_decay=wd)
     for epoch in range(num_epochs):
+        device = module_device(encoder)
         train_loss = 0.0
         for k in range(batch_size):
             n_chosen = random.randint(0, train_input.shape[0] - 1)
-            trajectory_target = train_target[n_chosen][0, :].unsqueeze(0)
+            trajectory_target = train_target[n_chosen][0, :].unsqueeze(0).to(device)
             trajectory_obs = train_input[n_chosen]
             if dataset_name == "Pendulum":
-                state_prev = torch.stack((torch.ones(1) * 90 * np.pi / 180, torch.zeros(1)), 0)
+                state_prev = torch.stack((torch.ones(1, device=device) * 90 * np.pi / 180, torch.zeros(1, device=device)), 0)
             else:
-                state_prev = torch.ones(test_target.shape[1], 1)
-            x_out = torch.empty(trajectory_target.shape[0], test_target.shape[2])
+                state_prev = torch.ones(test_target.shape[1], 1, device=device)
+            x_out = torch.empty(trajectory_target.shape[0], test_target.shape[2], device=device)
             for t in range(trajectory_obs.shape[0]):  # running over all time steps
-                obs = torch.from_numpy(trajectory_obs[t, :, :]).unsqueeze(0).unsqueeze(0)
+                obs = torch.as_tensor(trajectory_obs[t, :, :], device=device).unsqueeze(0).unsqueeze(0)
                 if dataset_name == "Lorenz":
                     prior = torch.matmul(f_function(state_prev.float()), state_prev.float()).transpose(0, 1)
                 else:
@@ -73,16 +83,17 @@ def train(path_enc,encoder, train_loader, val_loader, num_epochs, batch_size, fl
     train_loss_epoch=[]
     val_loss_epoch = []
     for epoch in range(num_epochs):
+        device = module_device(encoder)
         train_loss = []
         for k, batch in enumerate(train_loader):
             if (batch[0].shape[0] == batch_size):  # taking only full batch to learn from
-                image_batch = batch[0].float()
+                image_batch = batch[0].float().to(device)
                 if dataset_name =="Pendulum":
-                    states_with_noise_batch = batch[1][:,0].unsqueeze(1)
-                    targets_batch = batch[2][:,0].unsqueeze(1)
+                    states_with_noise_batch = batch[1][:,0].unsqueeze(1).to(device)
+                    targets_batch = batch[2][:,0].unsqueeze(1).to(device)
                 else:
-                    states_with_noise_batch = batch[1]
-                    targets_batch = batch[2]
+                    states_with_noise_batch = batch[1].to(device)
+                    targets_batch = batch[2].to(device)
                 encoder = encoder.float()
                 if flag_prior:
                     encoded_data = encoder(image_batch,states_with_noise_batch)
@@ -96,7 +107,7 @@ def train(path_enc,encoder, train_loader, val_loader, num_epochs, batch_size, fl
                 loss.backward()
                 optimizer.step()
                 # Print batch loss
-                train_loss.append(loss.detach().numpy())
+                train_loss.append(loss.detach().cpu().numpy())
         train_loss_epoch.append(10 * math.log10(np.mean(train_loss)))
         epoch_val_loss = test_epoch(encoder, val_loader, loss_fn, batch_size, flag_prior, dataset_name)
         val_loss_epoch.append(10 * math.log10(epoch_val_loss))
@@ -120,16 +131,17 @@ def test_epoch(encoder, val_loader, loss_fn, batch_size, flag_prior,dataset_name
     #encoder_test = torch.empty(100, 3, 2000)
     encoder.eval()
     with torch.no_grad(): # No need to track the gradients
+        device = module_device(encoder)
         val_loss = []
         for k, batch in enumerate(val_loader):
             if (batch[0].shape[0] == batch_size):  # taking only full batch to learn from
-                image_batch = batch[0]
+                image_batch = batch[0].to(device)
                 if dataset_name =="Pendulum":
-                    states_with_noise_batch = batch[1][:,0].unsqueeze(1)
-                    targets_batch = batch[2][:,0].unsqueeze(1)
+                    states_with_noise_batch = batch[1][:,0].unsqueeze(1).to(device)
+                    targets_batch = batch[2][:,0].unsqueeze(1).to(device)
                 else:
-                    states_with_noise_batch = batch[1]
-                    targets_batch = batch[2]
+                    states_with_noise_batch = batch[1].to(device)
+                    targets_batch = batch[2].to(device)
                 encoder = encoder.float()
                 if flag_prior:
                     encoded_data = encoder(image_batch,states_with_noise_batch)
@@ -138,24 +150,25 @@ def test_epoch(encoder, val_loader, loss_fn, batch_size, flag_prior,dataset_name
                 loss = loss_fn(encoded_data, targets_batch)
                 if torch.isnan(loss):
                     print("we have nan")
-                val_loss.append(loss.numpy())
+                val_loss.append(loss.detach().cpu().numpy())
     return np.mean(val_loss)
 
 def inference_with_prior(encoder, test_input, test_target, dataset_name,f_function):
     encoder.eval()
     loss_fn = torch.nn.MSELoss()
     with torch.no_grad(): # No need to track the gradients
+        device = module_device(encoder)
         test_loss = []
         for k,trajectory_obs in enumerate(test_input):
             if dataset_name == "Pendulum":
-                trajectory_target = test_target[k][0, :].unsqueeze(0)
-                state_prev = torch.stack((torch.ones(1)* 90* np.pi / 180,torch.zeros(1)), 0)
+                trajectory_target = test_target[k][0, :].unsqueeze(0).to(device)
+                state_prev = torch.stack((torch.ones(1, device=device)* 90* np.pi / 180,torch.zeros(1, device=device)), 0)
             else:
-                trajectory_target = test_target[k]
-                state_prev = torch.ones(test_target.shape[1], 1)
-            x_out = torch.empty(trajectory_target.shape[0], test_target.shape[2])
+                trajectory_target = test_target[k].to(device)
+                state_prev = torch.ones(test_target.shape[1], 1, device=device)
+            x_out = torch.empty(trajectory_target.shape[0], test_target.shape[2], device=device)
             for t in range(trajectory_obs.shape[0]): #running over all time steps
-                obs = torch.from_numpy(trajectory_obs[t,:,:]).unsqueeze(0).unsqueeze(0)
+                obs = torch.as_tensor(trajectory_obs[t,:,:], device=device).unsqueeze(0).unsqueeze(0)
                 encoder = encoder.double()
                 if dataset_name == "Lorenz":
                     prior = torch.matmul(f_function(state_prev.float()), state_prev.float()).transpose(0, 1)
@@ -168,7 +181,7 @@ def inference_with_prior(encoder, test_input, test_target, dataset_name,f_functi
                     state_prev[:, 0] = encoded_data.squeeze(0)
                 x_out[:, t] = encoded_data
                 state_prev = state_prev.transpose(0,1)
-            test_loss.append(loss_fn(x_out, trajectory_target).detach().numpy()) ## collecting mu_traj
+            test_loss.append(loss_fn(x_out, trajectory_target).detach().cpu().numpy()) ## collecting mu_traj
         loss_mu_set = np.mean(test_loss)
         loss_var_set = 0
         for loss_traj in test_loss:
@@ -277,9 +290,9 @@ class Encoder_conv_with_prior(nn.Module):
         return out
 
 def check_learning_process(img_batch,recon_batch,epoch, name):
-    y_nump = img_batch[32].reshape(28,28).detach().numpy()
+    y_nump = img_batch[32].reshape(28,28).detach().cpu().numpy()
     #reshape(24,24).detach().numpy().squeeze()
-    y_recon_nump = recon_batch[32].reshape(28,28).detach().numpy()
+    y_recon_nump = recon_batch[32].reshape(28,28).detach().cpu().numpy()
     #recon_batch[32].reshape(24,24).detach().numpy().squeeze()
     fig = plt.figure(figsize=(10, 7))
     fig.add_subplot(1, 2, 1)
@@ -438,9 +451,9 @@ def initialize_data_AE_Lorenz(path_for_data, batch_size,prior_r, y_size):
     stats_np_with_noise_test = add_noise(states_np_test, prior_r)
     test_loader = create_dataset_loader(imgs_np_test, stats_np_with_noise_test, states_np_test, batch_size)
 
-    test_input = reformat(test_input, y_size).detach().numpy()
-    train_input = reformat(train_input, y_size).detach().numpy()
-    cv_input = reformat(cv_input, y_size).detach().numpy()
+    test_input = reformat(test_input, y_size).detach().cpu().numpy()
+    train_input = reformat(train_input, y_size).detach().cpu().numpy()
+    cv_input = reformat(cv_input, y_size).detach().cpu().numpy()
     return train_loader,val_loader,test_loader,train_input, train_target, cv_input, cv_target, test_input, test_target
 
 def reformat(data_input,y_size):
@@ -510,7 +523,7 @@ if __name__ == '__main__':
 
         ## load model
         if flag_load_model:
-            encoder.load_state_dict(torch.load(path_enc), strict=False)
+            encoder.load_state_dict(torch_load_compat(path_enc, weights_only=True), strict=False)
 
         ### train model
         if flag_train:

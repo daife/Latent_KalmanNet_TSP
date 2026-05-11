@@ -14,6 +14,12 @@ else:
     dev = torch.device("cpu")
     #print("Running on the CPU")
 
+def torch_load_compat(path, weights_only=True):
+    try:
+        return torch.load(path, map_location=dev, weights_only=weights_only)
+    except TypeError:
+        return torch.load(path, map_location=dev)
+
 #######################
 ### Size of DataSet ###
 #######################
@@ -145,22 +151,26 @@ def DataGen(SysModel_data, dataset_name, sinerio, T, T_test, N_E, N_CV, N_T, ran
     simulation_dir = Path(__file__).resolve().parent / "Simulations" / dataset_name
     simulation_dir.mkdir(parents=True, exist_ok=True)
     np.savez(simulation_dir / f"observations_q2_{SysModel_data.real_q2}_{sinerio}.npz",
-             training_set=training_input.numpy(),validation_set=cv_input.numpy(),test_set=test_input.numpy())
+             training_set=training_input.detach().cpu().numpy(),
+             validation_set=cv_input.detach().cpu().numpy(),
+             test_set=test_input.detach().cpu().numpy())
 
     np.savez(simulation_dir / f"states_q2_{SysModel_data.real_q2}_{sinerio}.npz",
-             training_set=training_target.numpy(), validation_set=cv_target.numpy(), test_set=test_target.numpy())
+             training_set=training_target.detach().cpu().numpy(),
+             validation_set=cv_target.detach().cpu().numpy(),
+             test_set=test_target.detach().cpu().numpy())
 
     #torch.save([training_input, training_target, cv_input, cv_target, test_input, test_target], './Simulations/lorenz_T=200_decimated_q=0.1_r={}.pt'.format(SysModel_data.real_r))
     return [training_input, training_target, cv_input, cv_target, test_input, test_target]
 
 def DataLoader(fileName):
-    [training_input, training_target, cv_input, cv_target, test_input, test_target] = torch.load(fileName)
+    [training_input, training_target, cv_input, cv_target, test_input, test_target] = torch_load_compat(fileName, weights_only=True)
     return [training_input, training_target, cv_input, cv_target, test_input, test_target]
 
 
 def DataLoader_GPU(fileName):
     [training_input, training_target, cv_input, cv_target, test_input, test_target] = torch.utils.data.DataLoader(
-        torch.load(fileName), pin_memory=False)
+        torch_load_compat(fileName, weights_only=True), pin_memory=False)
     training_input = training_input.squeeze().to(dev)
     training_target = training_target.squeeze().to(dev)
     cv_input = cv_input.squeeze().to(dev)

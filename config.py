@@ -28,6 +28,12 @@ def define_dev():
 def ensure_dir(path):
   Path(path).mkdir(parents=True, exist_ok=True)
 
+def torch_load_compat(path, weights_only=True):
+  try:
+    return torch.load(path, map_location=dev, weights_only=weights_only)
+  except TypeError:
+    return torch.load(path, map_location=dev)
+
 def resolve_knet_checkpoint(path):
   expected_path = Path(path)
   if expected_path.exists():
@@ -132,7 +138,7 @@ def save_dataset(input, target, encoder):
             state_prev = torch.stack((torch.ones(1) * 45 * np.pi / 180, torch.zeros(1)), 0) #[0.785,0]
             x_out = torch.empty(trajectory_target.shape[0], target.shape[2])
             for t in range(trajectory_obs.shape[0]):  # running over all time steps in the given k trajectory
-                obs = torch.from_numpy(trajectory_obs[t, :, :]).unsqueeze(0).unsqueeze(0) # the t image y_t
+                obs = torch.as_tensor(trajectory_obs[t, :, :], device=dev).unsqueeze(0).unsqueeze(0) # the t image y_t
                 prior = f_function(state_prev) #x_t|t-1 (2 elements)
                 state_prev = prior #x_t|t-1 (2 elements)
                 encoder = encoder.double()
@@ -140,7 +146,7 @@ def save_dataset(input, target, encoder):
                 x_out[:, t] = encoded_data
                 state_prev[:, 0] = encoded_data
                 state_prev = state_prev.transpose(0, 1)
-            loss.append(loss_fn(x_out, trajectory_target).detach().numpy())
+            loss.append(loss_fn(x_out, trajectory_target).detach().cpu().numpy())
             x_out_all[k,:,:] = x_out
         print("loss: {}".format((10 * math.log10(np.mean(loss)))))
         return(x_out_all)
@@ -201,16 +207,16 @@ if prior_flag:
     model_encoder_trained = Encoder_conv_with_prior(d)
     sinerio = sinerio+"_with_prior"
     path_enc = str(Path(folder_encoder_model) / sinerio / '{}_Only_encoder_r={}_prior={}.pt'.format(dataset_name, real_r2, prior_r2))
-    model_encoder_trained.load_state_dict(torch.load(path_enc),strict=False)
+    model_encoder_trained.load_state_dict(torch_load_compat(path_enc, weights_only=True),strict=False)
     path_KNetLatent_trained = folder_KNetLatent_models + 'KNetLatent_optimal_' + dataset_name + '_' + sinerio + '_' + 'fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
 else:
     model_encoder_trained = Encoder_conv(d)
     if "Decimation" in sinerio:
-      model_encoder_trained.load_state_dict(torch.load(folder_encoder_model + sinerio + '/' + dataset_name + '_Only_encoder_r={}.pt'.format(real_r2)),strict=False)
+      model_encoder_trained.load_state_dict(torch_load_compat(folder_encoder_model + sinerio + '/' + dataset_name + '_Only_encoder_r={}.pt'.format(real_r2), weights_only=True),strict=False)
       path_KNetLatent_trained = folder_KNetLatent_models + 'KNetLatent_optimal_' + dataset_name + '_' + sinerio + '_fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
     else:
       path_enc = str(Path(folder_encoder_model) / sinerio / '{}_Only_encoder_r={}.pt'.format(dataset_name, real_r2))
-      model_encoder_trained.load_state_dict(torch.load(path_enc),strict=False)
+      model_encoder_trained.load_state_dict(torch_load_compat(path_enc, weights_only=True),strict=False)
       path_KNetLatent_trained = folder_KNetLatent_models + 'KNetLatent_optimal_' + dataset_name + '_' + 'Baseline_fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
 
 if load_KNetLatent_trained:

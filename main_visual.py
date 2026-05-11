@@ -36,7 +36,7 @@ print("5. Created KNetLatent pipeline instance")
 Kalman_Latent_Pipeline = Pipeline_KF(strTime, path_KNetLatent_trained, dataset_name, sinerio, fix_encoder_flag, sys_model,d,warm_start_flag)
 ################## KGain model
 if load_KNetLatent_trained:
-    Kalman_Latent_Pipeline.model = torch.load(path_KNetLatent_trained).double()
+    Kalman_Latent_Pipeline.model = torch_load_compat(path_KNetLatent_trained, weights_only=False).double().to(dev)
     print("6. Loaded weights for KNetLatent")
 else:
     print("6. Create KNetLatent model")
@@ -96,7 +96,7 @@ if dataset_name == "Pendulum":
     for i, r in enumerate(r_values):
         model_encoder_trained = Encoder_conv(d).double()
         path_enc = r'./Encoder/{}/{}/{}_Only_encoder_r={}.pt'.format(dataset_name, 'Baseline', dataset_name,r)
-        model_encoder_trained.load_state_dict(torch.load(path_enc),strict=False)
+        model_encoder_trained.load_state_dict(torch_load_compat(path_enc, weights_only=True),strict=False)
         train_loader,val_loader,test_loader,train_input, train_target, cv_input, cv_target, test_input, test_target = initialize_data_AE_Pendulum(path_for_states,path_for_observations,batch_size, prior_r2, r, dev, warm_start_flag)
         loss = test_epoch(model_encoder_trained, test_loader, torch.nn.MSELoss(reduction='mean'), batch_size, False, dataset_name)
         print("Encoder loss p_r={}: {}".format(r,10 * math.log10(loss)))
@@ -106,8 +106,8 @@ if dataset_name == "Pendulum":
         Encoder_output = []
         input = test_input[num_trj,:,:,:]
         for k in range(input.shape[0]):
-            obs = torch.from_numpy(input[k]).unsqueeze(0).unsqueeze(0)
-            Encoder_output.append(model_encoder_trained(obs.float()).detach().numpy()[0])
+            obs = torch.as_tensor(input[k], device=dev).unsqueeze(0).unsqueeze(0)
+            Encoder_output.append(model_encoder_trained.to(dev)(obs.float()).detach().cpu().numpy()[0])
         predictions1.append(Encoder_output)
 
     ## Encoder with prior
@@ -116,8 +116,8 @@ if dataset_name == "Pendulum":
     for i,r in enumerate(r_values):
         model_encoder_with_prior = Encoder_conv_with_prior(1).double()
         path_enc = r'./Encoder/{}/{}/{}_Only_encoder_r={}_prior={}.pt'.format(dataset_name, 'Baseline_with_prior', dataset_name, r ,prior_r2)
-        model_encoder_with_prior.load_state_dict(torch.load(path_enc),strict=False)
-        state_prev = torch.stack((torch.ones(1)* 90* np.pi / 180,torch.zeros(1)), 0)
+        model_encoder_with_prior.load_state_dict(torch_load_compat(path_enc, weights_only=True),strict=False)
+        state_prev = torch.stack((torch.ones(1, device=dev)* 90* np.pi / 180,torch.zeros(1, device=dev)), 0)
         train_loader, val_loader, test_loader, train_input, train_target, cv_input, cv_target, test_input, test_target = initialize_data_AE_Pendulum(
             path_for_states, path_for_observations, batch_size, prior_r2, r, dev, warm_start_flag)
         loss = inference_with_prior(model_encoder_with_prior, test_input, test_target, dataset_name,f_function)
@@ -131,12 +131,12 @@ if dataset_name == "Pendulum":
         input = test_input[num_trj, :, :, :]
         Encoder_with_prior_output = []
         for k in range(input.shape[0]):
-            obs = torch.from_numpy(input[k]).unsqueeze(0).unsqueeze(0)
+            obs = torch.as_tensor(input[k], device=dev).unsqueeze(0).unsqueeze(0)
             prior = f_function(state_prev)
-            output = model_encoder_with_prior(obs,prior[:,0].unsqueeze(0).double()).detach().numpy()[0][0]
+            output = model_encoder_with_prior.to(dev)(obs,prior[:,0].unsqueeze(0).double()).detach().cpu().numpy()[0][0]
             Encoder_with_prior_output.append(output)
             state_prev = prior
-            state_prev[:, 0] = output
+            state_prev[:, 0] = torch.as_tensor(output, device=dev)
             state_prev = state_prev.transpose(0, 1)
         predictions.append(Encoder_with_prior_output)
     # # Latent KalmanNet
