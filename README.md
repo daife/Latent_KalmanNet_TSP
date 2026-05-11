@@ -17,16 +17,16 @@
 
 ## 环境安装
 
-建议使用 Python 3.9 或 3.10。代码会自动检测 CUDA；没有 GPU 时也可以跑 CPU，但完整训练会慢很多。
+建议使用 Python 3.9 或 3.10。代码会自动检测 CUDA；没有 GPU 时也可以跑 CPU，但完整训练会慢很多。推荐使用 conda 管理环境：
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+conda create -n latent-kalmannet python=3.10 -y
+conda activate latent-kalmannet
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-如果需要安装指定 CUDA 版本的 PyTorch，请先按 PyTorch 官网命令安装 `torch`，再执行 `pip install -r requirements.txt`。
+如果需要安装指定 CUDA 版本的 PyTorch，请先在已激活的 conda 环境中按 PyTorch 官网命令安装 `torch`，再执行 `pip install -r requirements.txt`。例如 CPU 版本可直接使用上面的命令；GPU 版本应按本机 CUDA/驱动选择对应的 PyTorch 安装命令。
 
 > 注意：`PendulumGeneration_new.py` 使用了 `Image.ANTIALIAS`，该符号在 Pillow 10 中被移除，所以 `requirements.txt` 将 Pillow 限制在 `<10.0`。
 
