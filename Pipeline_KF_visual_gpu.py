@@ -334,10 +334,8 @@ class Pipeline_KF:
         self.MSE_test_dB_avg = 10 * torch.log10(self.MSE_test_linear_avg)
 
         # Standard deviation
-        loss_var_set = 0
-        for loss_traj in self.MSE_test_linear_arr:
-            loss_var_set += (self.MSE_test_linear_avg - loss_traj)*(self.MSE_test_linear_avg - loss_traj)
-        loss_var_set = np.sqrt(loss_var_set) / np.sqrt(len(test_input))
+        loss_var_set = torch.sqrt(torch.sum((self.MSE_test_linear_avg - self.MSE_test_linear_arr) ** 2))
+        loss_var_set = loss_var_set / torch.sqrt(torch.tensor(len(test_input), device=device, dtype=loss_var_set.dtype))
 
         print("Latent KalmanNet Test loss: {} dB with variance {} dB".format(self.MSE_test_dB_avg, 10 * torch.log10(self.MSE_test_linear_avg  + loss_var_set) - self.MSE_test_dB_avg))
 
@@ -365,10 +363,8 @@ class Pipeline_KF:
         self.MSE_test_dB_avg_encoder = 10 * torch.log10(self.MSE_test_linear_avg_encoder)
 
         # Standard deviation
-        loss_var_encoder_set = 0
-        for loss_traj in self.MSE_test_linear_arr_encoder:
-            loss_var_encoder_set += (self.MSE_test_linear_avg_encoder - loss_traj) * (self.MSE_test_linear_avg_encoder - loss_traj)
-        loss_var_encoder_set = np.sqrt(loss_var_encoder_set) / np.sqrt(len(test_input))
+        loss_var_encoder_set = torch.sqrt(torch.sum((self.MSE_test_linear_avg_encoder - self.MSE_test_linear_arr_encoder) ** 2))
+        loss_var_encoder_set = loss_var_encoder_set / torch.sqrt(torch.tensor(len(test_input), device=device, dtype=loss_var_encoder_set.dtype))
 
         print("Only Encoder Test loss: {} dB with variance {} dB".format(self.MSE_test_dB_avg_encoder, 10 * torch.log10(
             self.MSE_test_linear_avg_encoder + loss_var_encoder_set) - self.MSE_test_dB_avg_encoder))
