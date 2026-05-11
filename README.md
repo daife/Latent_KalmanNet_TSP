@@ -20,8 +20,8 @@
 建议使用 Python 3.9 或 3.10。代码会自动检测 CUDA；没有 GPU 时也可以跑 CPU，但完整训练会慢很多。推荐使用 conda 管理环境：
 
 ```powershell
-conda create -n latent-kalmannet python=3.10 -y
-conda activate latent-kalmannet
+conda create --prefix .\.conda python=3.10 -y
+conda activate .\.conda
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
