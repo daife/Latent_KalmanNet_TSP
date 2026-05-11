@@ -1,6 +1,7 @@
 ##########  config  ##########
 import torch, random, math
 from datetime import datetime # getting current time
+from pathlib import Path
 from main_AE import Encoder_conv, Encoder_conv_with_prior
 from config_script import *
 from Extended_data_visual import DataGen
@@ -23,6 +24,45 @@ def define_dev():
     dev = torch.device("cpu")
     print("Running on the CPU")
   return dev
+
+def ensure_dir(path):
+  Path(path).mkdir(parents=True, exist_ok=True)
+
+def resolve_knet_checkpoint(path):
+  expected_path = Path(path)
+  if expected_path.exists():
+    return str(expected_path)
+
+  candidate_paths = []
+  if dataset_name == "Lorenz":
+    if "Decimation" in sinerio:
+      candidate_paths.append(Path(folder_KNetLatent_models) / "Decimation" / expected_path.name)
+    elif "Baseline" in sinerio:
+      candidate_paths.append(Path(folder_KNetLatent_models) / f"J={J} baseline" / expected_path.name)
+      candidate_paths.append(Path(folder_KNetLatent_models) / f"J={J}" / expected_path.name)
+
+  for candidate_path in candidate_paths:
+    if candidate_path.exists():
+      print(f"Using KNetLatent checkpoint: {candidate_path}")
+      return str(candidate_path)
+
+  matches = list(Path(folder_KNetLatent_models).rglob(expected_path.name))
+  if len(matches) == 1:
+    print(f"Using KNetLatent checkpoint: {matches[0]}")
+    return str(matches[0])
+  if len(matches) > 1:
+    raise FileNotFoundError(
+      "Multiple KNetLatent checkpoints match '{}'. Please set folder_KNetLatent_model "
+      "or path_KNetLatent_trained more specifically. Matches:\n{}".format(
+        expected_path.name, "\n".join(str(match) for match in matches)
+      )
+    )
+
+  raise FileNotFoundError(
+    "KNetLatent checkpoint not found: {}\nSearched under: {}\n"
+    "If you only generated data, this file still has to be trained first or copied from "
+    "the pretrained checkpoint directory.".format(expected_path, folder_KNetLatent_models)
+  )
 
 def print_weights(Knet_pipeline, state):
   print("#### {} training ####".format(state))
@@ -133,6 +173,9 @@ print("2. Created system model")
 ############################################################################################
 
 ### Data ########################################
+ensure_dir(folder_simulations)
+ensure_dir(folder_KNetLatent_models)
+ensure_dir(folder_encoder_model)
 if dataset_name == "Pendulum":
     if data_gen_flag:
         print("3. Start data generation {} sinerio {} with r = {}".format(dataset_name, sinerio, real_r2))
@@ -146,8 +189,8 @@ else:
     else:
         print("3. Loading {} {} dataset with real_q {} and real_r = {}".format(dataset_name, sinerio, real_q2, real_r2))
 
-path_for_states = rf'./Simulations/{dataset_name}/states_q2_{real_q2}_{sinerio}.npz'
-path_for_observations = rf'./Simulations/{dataset_name}/Observations_q2_{real_q2}_{sinerio}.npz'
+path_for_states = str(Path(folder_simulations) / f'states_q2_{real_q2}_{sinerio}.npz')
+path_for_observations = str(Path(folder_simulations) / f'observations_q2_{real_q2}_{sinerio}.npz')
 ###############################################################################################
 
 ################# Architecture knet ################################
@@ -157,15 +200,18 @@ if real_r2 == 0.5:
 if prior_flag:
     model_encoder_trained = Encoder_conv_with_prior(d)
     sinerio = sinerio+"_with_prior"
-    path_enc = r'./Encoder/{}/{}/{}_Only_encoder_r={}_prior={}.pt'.format(dataset_name, sinerio, dataset_name, real_r2, prior_r2)
+    path_enc = str(Path(folder_encoder_model) / sinerio / '{}_Only_encoder_r={}_prior={}.pt'.format(dataset_name, real_r2, prior_r2))
     model_encoder_trained.load_state_dict(torch.load(path_enc),strict=False)
     path_KNetLatent_trained = folder_KNetLatent_models + 'KNetLatent_optimal_' + dataset_name + '_' + sinerio + '_' + 'fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
 else:
     model_encoder_trained = Encoder_conv(d)
     if "Decimation" in sinerio:
       model_encoder_trained.load_state_dict(torch.load(folder_encoder_model + sinerio + '/' + dataset_name + '_Only_encoder_r={}.pt'.format(real_r2)),strict=False)
-      path_KNetLatent_trained = folder_KNetLatent_models + 'KNatLatent_optimal_' + dataset_name + '_' + sinerio + '_fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
+      path_KNetLatent_trained = folder_KNetLatent_models + 'KNetLatent_optimal_' + dataset_name + '_' + sinerio + '_fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
     else:
-      path_enc = r'./Encoder/{}/{}/{}_Only_encoder_r={}.pt'.format(dataset_name, sinerio, dataset_name, real_r2)
+      path_enc = str(Path(folder_encoder_model) / sinerio / '{}_Only_encoder_r={}.pt'.format(dataset_name, real_r2))
       model_encoder_trained.load_state_dict(torch.load(path_enc),strict=False)
-      path_KNetLatent_trained = folder_KNetLatent_models + 'KNatLatent_optimal_' + dataset_name + '_' + 'Baseline_fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
+      path_KNetLatent_trained = folder_KNetLatent_models + 'KNetLatent_optimal_' + dataset_name + '_' + 'Baseline_fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
+
+if load_KNetLatent_trained:
+  path_KNetLatent_trained = resolve_knet_checkpoint(path_KNetLatent_trained)

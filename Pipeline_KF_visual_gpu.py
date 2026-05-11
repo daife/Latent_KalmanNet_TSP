@@ -5,6 +5,7 @@ import random
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 from statistics import mean
 
 class Pipeline_KF:
@@ -214,6 +215,7 @@ class Pipeline_KF:
             if (self.MSE_cv_dB_epoch[ti] < self.MSE_cv_dB_opt):
                 self.MSE_cv_dB_opt = self.MSE_cv_dB_epoch[ti]
                 self.MSE_cv_idx_opt = ti
+                Path(self.path_KNetLatent).parent.mkdir(parents=True, exist_ok=True)
                 torch.save(self.model, self.path_KNetLatent)
 
             ###############################

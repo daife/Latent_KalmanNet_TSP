@@ -23,10 +23,10 @@
 conda create --prefix .\.conda python=3.10 -y
 conda activate .\.conda
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-如果需要安装指定 CUDA 版本的 PyTorch，请先在已激活的 conda 环境中按 PyTorch 官网命令安装 `torch`，再执行 `pip install -r requirements.txt`。例如 CPU 版本可直接使用上面的命令；GPU 版本应按本机 CUDA/驱动选择对应的 PyTorch 安装命令。
+如果需要安装指定 CUDA 版本的 PyTorch，请先在已激活的 conda 环境中按 PyTorch 官网命令安装 `torch`，再执行 `python -m pip install -r requirements.txt`。例如 CPU 版本可直接使用上面的命令；GPU 版本应按本机 CUDA/驱动选择对应的 PyTorch 安装命令。
 
 > 注意：`PendulumGeneration_new.py` 使用了 `Image.ANTIALIAS`，该符号在 Pillow 10 中被移除，所以 `requirements.txt` 将 Pillow 限制在 `<10.0`。
 

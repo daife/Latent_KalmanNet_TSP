@@ -1,5 +1,8 @@
 import numpy as np
 import yaml
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent
 
 def yaml_configuration(path):
     with open(path, "r") as stream:
@@ -9,8 +12,14 @@ def yaml_configuration(path):
         print(exc)
     return param_dict
 
+def project_path(path):
+    path = Path(path)
+    if path.is_absolute():
+        return path
+    return PROJECT_ROOT / path
+
 ############ parser ######################################
-param_dict = yaml_configuration('./configurations/config_file.yaml')
+param_dict = yaml_configuration(project_path('configurations/config_file.yaml'))
 ########### Data #########################################
 dataset_name = param_dict.get("dataset_name")
 sinerio = param_dict.get("sinerio")
@@ -40,9 +49,9 @@ else:
         N_T = 100
 
 ########### Directories ##################################
-folder_KNetLatent_models = param_dict.get("folder_KNetLatent_model")+"/{}".format(dataset_name)+"/"
-folder_simulations = param_dict.get("folder_simulations")+"/{}".format(dataset_name)+"/"
-folder_encoder_model = param_dict.get("folder_encoder_model")+"/{}".format(dataset_name)+"/"
+folder_KNetLatent_models = str(project_path(param_dict.get("folder_KNetLatent_model")) / dataset_name) + "/"
+folder_simulations = str(project_path(param_dict.get("folder_simulations")) / dataset_name) + "/"
+folder_encoder_model = str(project_path(param_dict.get("folder_encoder_model")) / dataset_name) + "/"
 ########### Architecture #################################
 load_KNetLatent_trained = param_dict.get("load_KNetLatent_trained")
 flag_Train = param_dict.get("flag_Train")

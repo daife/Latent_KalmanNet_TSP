@@ -2,6 +2,7 @@
 import torch
 import math
 import os
+from pathlib import Path
 from model_Lorenz import m
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 import numpy as np
@@ -141,10 +142,12 @@ def DataGen(SysModel_data, dataset_name, sinerio, T, T_test, N_E, N_CV, N_T, ran
     #################
     ### Save Data ###
     #################
-    np.savez(rf"Simulations/{dataset_name}/observations_q2_{SysModel_data.real_q2}_{sinerio}.npz",
+    simulation_dir = Path(__file__).resolve().parent / "Simulations" / dataset_name
+    simulation_dir.mkdir(parents=True, exist_ok=True)
+    np.savez(simulation_dir / f"observations_q2_{SysModel_data.real_q2}_{sinerio}.npz",
              training_set=training_input.numpy(),validation_set=cv_input.numpy(),test_set=test_input.numpy())
 
-    np.savez(rf"Simulations/{dataset_name}/states_q2_{SysModel_data.real_q2}_{sinerio}.npz",
+    np.savez(simulation_dir / f"states_q2_{SysModel_data.real_q2}_{sinerio}.npz",
              training_set=training_target.numpy(), validation_set=cv_target.numpy(), test_set=test_target.numpy())
 
     #torch.save([training_input, training_target, cv_input, cv_target, test_input, test_target], './Simulations/lorenz_T=200_decimated_q=0.1_r={}.pt'.format(SysModel_data.real_r))
