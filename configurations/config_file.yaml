@@ -14,8 +14,8 @@ folder_encoder_model : "./Encoder"
 Evaluate_EKF_flag : False         # True - Evaluate EKF results. False - Load EKF results
 
 ########### Architecture #################################
-load_KNetLatent_trained : True  # True - loading trained KGain model. False - KGain model start from scratch
-flag_Train : False                # True - Training full pipeline. False - Only inference                                  
+load_KNetLatent_trained : False  # True - loading trained KGain model. False - KGain model start from scratch
+flag_Train : True                # True - Training full pipeline. False - Only inference                                  
 fix_encoder_flag : False          # True - Encoder is fixed and KGain trainable. False - Encoder is trainable and KGain fixed
 prior_flag : True               # True - Encoder with prior. False - Encoder without prior
 warm_start_flag : False
@@ -24,7 +24,7 @@ warm_start_flag : False
 lr_kalman : 0.001
 wd_kalman : 0.01
 batch_size : 16
-epoches : 300
+epoches : 10
 
 
 

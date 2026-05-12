@@ -185,6 +185,7 @@ class Pipeline_KF:
         Train_loss_list=[]
         Val_loss_list = []
         for ti in range(0, self.N_Epochs):
+            t = time.time()
             #################################
             ### Validation Sequence Batch ###
             #################################

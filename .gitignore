@@ -1,0 +1,4 @@
+.conda/
+Simulations/
+logs/
+__pycache__/
