@@ -1,0 +1,281 @@
+param(
+    [string]$EnvPath = ".\.conda",
+    [int]$Epochs = 300,
+    [double[]]$LorenzNoiseValues = @(0.5, 0.1, 0.01, 0.0),
+    [double[]]$PendulumNoiseValues = @(0.9, 0.4, 0.1, 0.01),
+    [switch]$SkipDataGeneration,
+    [switch]$SkipTraining,
+    [switch]$SkipPendulum,
+    [switch]$SkipLorenz,
+    [switch]$SkipReferenceFigureExport
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$ConfigPath = Join-Path $ProjectRoot "configurations\config_file.yaml"
+$ModelLorenzPath = Join-Path $ProjectRoot "model_Lorenz.py"
+$LogDir = Join-Path $ProjectRoot "logs"
+$FigureDir = Join-Path $ProjectRoot "results\figures\gpu"
+$ModelRoot = "./results/models_gpu"
+
+New-Item -ItemType Directory -Force -Path $LogDir, $FigureDir | Out-Null
+New-Item -ItemType Directory -Force -Path `
+    (Join-Path $ProjectRoot "Simulations\Lorenz"), `
+    (Join-Path $ProjectRoot "Simulations\Pendulum"), `
+    (Join-Path $ProjectRoot "results\models_gpu") | Out-Null
+
+function Invoke-ProjectPython {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$LogName
+    )
+
+    $stdout = Join-Path $LogDir "$LogName.out.log"
+    $stderr = Join-Path $LogDir "$LogName.err.log"
+    Remove-Item -LiteralPath $stdout, $stderr -ErrorAction SilentlyContinue
+
+    Push-Location $ProjectRoot
+    try {
+        $env:MPLBACKEND = "Agg"
+        & conda run --no-capture-output --prefix $EnvPath python @Arguments 1> $stdout 2> $stderr
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "FAILED: $LogName"
+            if (Test-Path $stderr) { Get-Content $stderr -Tail 80 }
+            if (Test-Path $stdout) { Get-Content $stdout -Tail 80 }
+            throw "Command failed: python $($Arguments -join ' ')"
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Assert-GpuTorch {
+    Write-Host "Checking project conda environment and CUDA availability..."
+    Invoke-ProjectPython -LogName "gpu_check" -Arguments @(
+        "-c",
+        "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('device_count', torch.cuda.device_count()); assert torch.cuda.is_available(), 'PyTorch CUDA is not available in this environment'"
+    )
+}
+
+function Set-ExperimentConfig {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet("Lorenz", "Pendulum")][string]$Dataset,
+        [Parameter(Mandatory = $true)][string]$Scenario,
+        [Parameter(Mandatory = $true)][bool]$GenerateData,
+        [Parameter(Mandatory = $true)][double]$RealR2,
+        [Parameter(Mandatory = $true)][string]$ModelFolder
+    )
+
+    $generate = if ($GenerateData) { "True" } else { "False" }
+    $yaml = @"
+########### Data #########################################
+dataset_name : "$Dataset"          # "Lorenz" , "Pendulum"
+sinerio : "$Scenario"             # "Baseline", "Decimation", "Test_Long_Trajectories"
+data_gen_flag : $generate            # True - Generating Dataset. False - Loading Dataset
+real_r2 : $RealR2                       # observation noise std
+#real_q2 : 0.1                     # dynamic noise std
+
+########### Directories ##################################
+folder_KNetLatent_model : "$ModelFolder" # both models - encoder and KGain
+folder_simulations : "./Simulations"
+folder_encoder_model : "./Encoder"
+
+########### EKF ##########################################
+Evaluate_EKF_flag : False         # True - Evaluate EKF results. False - Load EKF results
+
+########### Architecture #################################
+load_KNetLatent_trained : False  # True - loading trained KGain model. False - KGain model start from scratch
+flag_Train : True                # True - Training full pipeline. False - Only inference
+fix_encoder_flag : False          # True - Encoder is fixed and KGain trainable. False - Encoder is trainable and KGain fixed
+prior_flag : True               # True - Encoder with prior. False - Encoder without prior
+warm_start_flag : False
+
+############ Hyper Parameters #############################
+lr_kalman : 0.001
+wd_kalman : 0.01
+batch_size : 16
+epoches : $Epochs
+"@
+    Set-Content -LiteralPath $ConfigPath -Value $yaml -Encoding UTF8
+}
+
+function Set-LorenzTaylorOrder {
+    param([Parameter(Mandatory = $true)][int]$J)
+
+    $content = Get-Content -LiteralPath $ModelLorenzPath -Raw
+    $content = [regex]::Replace($content, "(?m)^J\s*=\s*\d+\s*$", "J=$J")
+    Set-Content -LiteralPath $ModelLorenzPath -Value $content -Encoding UTF8
+}
+
+function Ensure-LorenzEncoderAliases {
+    $source = Join-Path $ProjectRoot "Encoder\Lorenz\Baseline_with_prior"
+    $target = Join-Path $ProjectRoot "Encoder\Lorenz\Test_Long_Trajectories_with_prior"
+
+    if (-not (Test-Path $source)) {
+        throw "Missing Lorenz baseline encoder directory: $source"
+    }
+
+    if (-not (Test-Path $target)) {
+        New-Item -ItemType Directory -Force -Path $target | Out-Null
+        Copy-Item -LiteralPath (Join-Path $source "*") -Destination $target -Recurse -Force
+    }
+}
+
+function Copy-MainVisualFigures {
+    param([Parameter(Mandatory = $true)][string]$Tag)
+
+    $mapping = @{
+        "Baseline.eps" = "${Tag}_Baseline.eps"
+        "Long_Trajectories.eps" = "${Tag}_Long_Trajectories.eps"
+        "Approximated_state_evolution_function.eps" = "${Tag}_Approximated_state_evolution_function.eps"
+        "Decimation.eps" = "${Tag}_Decimation.eps"
+        "Pendulum design steps.eps" = "${Tag}_Pendulum_design_steps.eps"
+        "trajectory_design_steps.eps" = "${Tag}_trajectory_design_steps.eps"
+        "trajectory_design_steps_zoom.eps" = "${Tag}_trajectory_design_steps_zoom.eps"
+    }
+
+    foreach ($sourceName in $mapping.Keys) {
+        $source = Join-Path $ProjectRoot $sourceName
+        if (Test-Path $source) {
+            Copy-Item -LiteralPath $source -Destination (Join-Path $FigureDir $mapping[$sourceName]) -Force
+            Remove-Item -LiteralPath $source -Force
+        }
+    }
+}
+
+function Ensure-PendulumBaselineData {
+    $script = @'
+from pathlib import Path
+import numpy as np
+from PendulumGeneration_new import Pendulum
+
+img_size = 28
+params = Pendulum.pendulum_default_params()
+params[Pendulum.SIM_DT_KEY] = 5e-3
+params[Pendulum.LENGTH_KEY] = 1
+params[Pendulum.DT_KEY] = 5e-2
+params[Pendulum.SIMULATION_LENGTH_KEY] = 2
+
+data = Pendulum(img_size=img_size, pendulum_params=params, seed=0)
+training_set_size = 1000
+validation_set_size = 100
+test_set_size = 100
+q2 = 0.001
+data.transition_noise_std = np.sqrt(q2)
+
+continuous = data.sample_continuous_data_set(training_set_size + validation_set_size + test_set_size)
+np.random.shuffle(continuous)
+img = data.generate_images(continuous) / 255.0
+
+out_dir = Path("Simulations/Pendulum")
+out_dir.mkdir(parents=True, exist_ok=True)
+np.savez(
+    out_dir / "states_q2_0.001_Baseline.npz",
+    training_set=continuous[:training_set_size, :, :],
+    validation_set=continuous[training_set_size:(training_set_size + validation_set_size), :, :],
+    test_set=continuous[training_set_size + validation_set_size:, :, :],
+)
+np.savez(
+    out_dir / "observations_q2_0.001_Baseline.npz",
+    training_set=img[:training_set_size, ...],
+    validation_set=img[training_set_size:(training_set_size + validation_set_size), ...],
+    test_set=img[(training_set_size + validation_set_size):, ...],
+)
+print("Saved Pendulum Baseline data under Simulations/Pendulum")
+'@
+    $tempScript = Join-Path $ProjectRoot "scripts\_generate_pendulum_baseline.py"
+    Set-Content -LiteralPath $tempScript -Value $script -Encoding UTF8
+    try {
+        Invoke-ProjectPython -LogName "generate_pendulum_baseline" -Arguments @($tempScript)
+    }
+    finally {
+        Remove-Item -LiteralPath $tempScript -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Generate-LorenzData {
+    param([Parameter(Mandatory = $true)][string]$Scenario)
+
+    $tag = "generate_lorenz_$($Scenario.ToLower())"
+    Set-ExperimentConfig -Dataset "Lorenz" -Scenario $Scenario -GenerateData $true -RealR2 $LorenzNoiseValues[0] -ModelFolder $ModelRoot
+    Invoke-ProjectPython -LogName $tag -Arguments @("-u", "-c", "import config")
+}
+
+function Train-MainVisual {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet("Lorenz", "Pendulum")][string]$Dataset,
+        [Parameter(Mandatory = $true)][string]$Scenario,
+        [Parameter(Mandatory = $true)][double]$RealR2,
+        [Parameter(Mandatory = $true)][string]$ExperimentName
+    )
+
+    $safeR = ($RealR2.ToString()).Replace(".", "p")
+    $tag = "${Dataset}_${ExperimentName}_${Scenario}_r${safeR}_epoch${Epochs}".ToLower()
+    $modelFolder = "$ModelRoot/$ExperimentName"
+    Set-ExperimentConfig -Dataset $Dataset -Scenario $Scenario -GenerateData $false -RealR2 $RealR2 -ModelFolder $modelFolder
+    New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot ($modelFolder.TrimStart("./") -replace "/", "\")) | Out-Null
+    Invoke-ProjectPython -LogName $tag -Arguments @("-u", "main_visual.py")
+    Copy-MainVisualFigures -Tag $tag
+}
+
+Assert-GpuTorch
+Ensure-LorenzEncoderAliases
+
+if (-not $SkipReferenceFigureExport) {
+    Invoke-ProjectPython -LogName "export_reference_reproduction_figures" -Arguments @("scripts\export_reproduction_figures.py")
+}
+
+try {
+if (-not $SkipLorenz) {
+    Set-LorenzTaylorOrder -J 5
+
+    if (-not $SkipDataGeneration) {
+        Generate-LorenzData -Scenario "Baseline"
+        Generate-LorenzData -Scenario "Test_Long_Trajectories"
+        Generate-LorenzData -Scenario "Decimation"
+    }
+
+    if (-not $SkipTraining) {
+        foreach ($r in $LorenzNoiseValues) {
+            Train-MainVisual -Dataset "Lorenz" -Scenario "Baseline" -RealR2 $r -ExperimentName "lorenz_baseline_j5"
+        }
+
+        foreach ($r in $LorenzNoiseValues) {
+            Train-MainVisual -Dataset "Lorenz" -Scenario "Test_Long_Trajectories" -RealR2 $r -ExperimentName "lorenz_long_j5"
+        }
+
+        foreach ($r in $LorenzNoiseValues) {
+            Train-MainVisual -Dataset "Lorenz" -Scenario "Decimation" -RealR2 $r -ExperimentName "lorenz_decimation_j5"
+        }
+
+        Set-LorenzTaylorOrder -J 1
+        foreach ($r in $LorenzNoiseValues) {
+            Train-MainVisual -Dataset "Lorenz" -Scenario "Baseline" -RealR2 $r -ExperimentName "lorenz_wrong_f_j1"
+        }
+        Set-LorenzTaylorOrder -J 5
+    }
+}
+
+if (-not $SkipPendulum) {
+    if (-not $SkipDataGeneration) {
+        Ensure-PendulumBaselineData
+    }
+
+    if (-not $SkipTraining) {
+        foreach ($r in $PendulumNoiseValues) {
+            Train-MainVisual -Dataset "Pendulum" -Scenario "Baseline" -RealR2 $r -ExperimentName "pendulum_baseline"
+        }
+    }
+}
+}
+finally {
+    Set-LorenzTaylorOrder -J 5
+}
+
+Write-Host "GPU reproduction script completed."
+Write-Host "Logs: $LogDir"
+Write-Host "Figures: $FigureDir"
+Write-Host "Models: $(Join-Path $ProjectRoot 'results\models_gpu')"

@@ -24,7 +24,7 @@ warm_start_flag : False
 lr_kalman : 0.001
 wd_kalman : 0.01
 batch_size : 16
-epoches : 10
+epoches : 300
 
 
 
