@@ -6,7 +6,7 @@ real_r2 : 0.5                       # observation noise std
 #real_q2 : 0.1                     # dynamic noise std
 
 ########### Directories ##################################
-folder_KNetLatent_model : "./KNetLatent_models" #both models - encoder and KGain
+folder_KNetLatent_model : "./results/models" #both models - encoder and KGain
 folder_simulations : "./Simulations"
 folder_encoder_model : "./Encoder"
 
