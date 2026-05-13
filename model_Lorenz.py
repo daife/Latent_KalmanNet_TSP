@@ -1,4 +1,4 @@
-## model Lorenz ##
+﻿## model Lorenz ##
 import math
 import torch
 torch.pi = torch.acos(torch.zeros(1)).item() * 2  # which is 3.1415927410125732
@@ -166,3 +166,8 @@ def multivariate_gaussian(pos, mu, Sigma):
 #             H_drivative[i, j, 1] = np.round(exp*(j-x2)/x3,3)
 #             H_drivative[i, j, 2] = np.round(exp*mone/(2*math.pow(x3,2)),3)
 #     return H_drivative
+
+
+
+
+

@@ -1,12 +1,12 @@
-########### Data #########################################
+﻿########### Data #########################################
 dataset_name : "Lorenz"          # "Lorenz" , "Pendulum"
 sinerio : "Baseline"             # "Baseline", "Decimation", "Test_Long_Trajectories"
-data_gen_flag : False            # True - Generating Dataset. False - Loading Dataset
+data_gen_flag : True            # True - Generating Dataset. False - Loading Dataset
 real_r2 : 0.5                       # observation noise std
 #real_q2 : 0.1                     # dynamic noise std
 
 ########### Directories ##################################
-folder_KNetLatent_model : "./results/models" #both models - encoder and KGain
+folder_KNetLatent_model : "./results/models_device_optional" # both models - encoder and KGain
 folder_simulations : "./Simulations"
 folder_encoder_model : "./Encoder"
 
@@ -15,7 +15,7 @@ Evaluate_EKF_flag : False         # True - Evaluate EKF results. False - Load EK
 
 ########### Architecture #################################
 load_KNetLatent_trained : False  # True - loading trained KGain model. False - KGain model start from scratch
-flag_Train : True                # True - Training full pipeline. False - Only inference                                  
+flag_Train : True                # True - Training full pipeline. False - Only inference
 fix_encoder_flag : False          # True - Encoder is fixed and KGain trainable. False - Encoder is trainable and KGain fixed
 prior_flag : True               # True - Encoder with prior. False - Encoder without prior
 warm_start_flag : False
@@ -25,7 +25,3 @@ lr_kalman : 0.001
 wd_kalman : 0.01
 batch_size : 16
 epoches : 300
-
-
-
-

@@ -7,7 +7,8 @@ param(
     [switch]$SkipTraining,
     [switch]$SkipPendulum,
     [switch]$SkipLorenz,
-    [switch]$SkipReferenceFigureExport
+    [switch]$SkipReferenceFigureExport,
+    [switch]$AllowCpu
 )
 
 Set-StrictMode -Version Latest
@@ -17,14 +18,26 @@ $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $ConfigPath = Join-Path $ProjectRoot "configurations\config_file.yaml"
 $ModelLorenzPath = Join-Path $ProjectRoot "model_Lorenz.py"
 $LogDir = Join-Path $ProjectRoot "logs"
-$FigureDir = Join-Path $ProjectRoot "results\figures\gpu"
-$ModelRoot = "./results/models_gpu"
+$RunDevice = if ($AllowCpu) { "device_optional" } else { "gpu" }
+$FigureDir = Join-Path $ProjectRoot "results\figures\$RunDevice"
+$ModelRoot = "./results/models_$RunDevice"
+$ResolvedEnvPath = Resolve-Path (Join-Path $ProjectRoot $EnvPath)
+$PythonExe = Join-Path $ResolvedEnvPath "python.exe"
+
+if (-not (Test-Path $PythonExe)) {
+    throw "Cannot find project environment Python: $PythonExe. Create the project conda environment first."
+}
 
 New-Item -ItemType Directory -Force -Path $LogDir, $FigureDir | Out-Null
 New-Item -ItemType Directory -Force -Path `
     (Join-Path $ProjectRoot "Simulations\Lorenz"), `
     (Join-Path $ProjectRoot "Simulations\Pendulum"), `
-    (Join-Path $ProjectRoot "results\models_gpu") | Out-Null
+    (Join-Path $ProjectRoot "results\models_$RunDevice") | Out-Null
+
+Write-Host "KNet checkpoints will be trained from scratch and saved under $ModelRoot."
+Write-Host "The script will not load or fall back to pretrained checkpoints under ./KNetLatent_models."
+Write-Host "Dataset generation steps overwrite matching files under ./Simulations."
+Write-Host "Using Python executable: $PythonExe"
 
 function Invoke-ProjectPython {
     param(
@@ -34,30 +47,41 @@ function Invoke-ProjectPython {
 
     $stdout = Join-Path $LogDir "$LogName.out.log"
     $stderr = Join-Path $LogDir "$LogName.err.log"
+    $runner = Join-Path $LogDir "$LogName.run.cmd"
     Remove-Item -LiteralPath $stdout, $stderr -ErrorAction SilentlyContinue
 
     Push-Location $ProjectRoot
     try {
-        $env:MPLBACKEND = "Agg"
-        $previousErrorActionPreference = $ErrorActionPreference
-        $ErrorActionPreference = "Continue"
-        try {
-            & conda run --no-capture-output --prefix $EnvPath python @Arguments 1> $stdout 2> $stderr
-            $exitCode = $LASTEXITCODE
-        }
-        finally {
-            $ErrorActionPreference = $previousErrorActionPreference
+        function Quote-CmdArgument {
+            param([Parameter(Mandatory = $true)][string]$Value)
+            '"' + ($Value -replace '"', '\"') + '"'
         }
 
+        $quotedPython = Quote-CmdArgument $PythonExe
+        $quotedArgs = ($Arguments | ForEach-Object { Quote-CmdArgument $_ }) -join " "
+        $quotedStdout = Quote-CmdArgument $stdout
+        $quotedStderr = Quote-CmdArgument $stderr
+
+        $runnerContent = @"
+@echo off
+set MPLBACKEND=Agg
+$quotedPython $quotedArgs 1>$quotedStdout 2>$quotedStderr
+exit /b %ERRORLEVEL%
+"@
+        Set-Content -LiteralPath $runner -Value $runnerContent -Encoding ASCII
+
+        & cmd.exe /d /c "`"$runner`""
+        $exitCode = $LASTEXITCODE
+
         if ($exitCode -eq 0 -and (Test-Path $stderr)) {
-            $realErrors = Get-Content $stderr | Where-Object {
+            $rawWarnings = Get-Content $stderr | Where-Object {
                 $_ -and
                 $_ -notmatch "The PostScript backend does not support transparency" -and
                 $_ -notmatch "partially transparent artists will be rendered opaque"
             }
-            if ($realErrors) {
+            if ($rawWarnings) {
                 Write-Host "Warnings from ${LogName}:"
-                $realErrors | Select-Object -Last 20
+                $rawWarnings | Select-Object -Last 20
             }
         }
 
@@ -69,16 +93,26 @@ function Invoke-ProjectPython {
         }
     }
     finally {
+        Remove-Item -LiteralPath $runner -Force -ErrorAction SilentlyContinue
         Pop-Location
     }
 }
 
-function Assert-GpuTorch {
-    Write-Host "Checking project conda environment and CUDA availability..."
-    Invoke-ProjectPython -LogName "gpu_check" -Arguments @(
-        "-c",
-        "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('device_count', torch.cuda.device_count()); assert torch.cuda.is_available(), 'PyTorch CUDA is not available in this environment'"
-    )
+function Assert-TorchDevice {
+    if ($AllowCpu) {
+        Write-Host "Checking project conda environment. CPU fallback is allowed by -AllowCpu."
+        Invoke-ProjectPython -LogName "device_check" -Arguments @(
+            "-c",
+            "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('device_count', torch.cuda.device_count()); print('selected_mode', 'cuda' if torch.cuda.is_available() else 'cpu')"
+        )
+    }
+    else {
+        Write-Host "Checking project conda environment and CUDA availability..."
+        Invoke-ProjectPython -LogName "device_check" -Arguments @(
+            "-c",
+            "import torch; print('torch', torch.__version__); print('cuda_available', torch.cuda.is_available()); print('device_count', torch.cuda.device_count()); assert torch.cuda.is_available(), 'PyTorch CUDA is not available in this environment. Re-run with -AllowCpu to permit CPU execution.'"
+        )
+    }
 }
 
 function Set-ExperimentConfig {
@@ -242,7 +276,7 @@ function Train-MainVisual {
     Copy-MainVisualFigures -Tag $tag
 }
 
-Assert-GpuTorch
+Assert-TorchDevice
 Ensure-LorenzEncoderAliases
 
 if (-not $SkipReferenceFigureExport) {
@@ -296,7 +330,7 @@ finally {
     Set-LorenzTaylorOrder -J 5
 }
 
-Write-Host "GPU reproduction script completed."
+Write-Host "Reproduction script completed."
 Write-Host "Logs: $LogDir"
 Write-Host "Figures: $FigureDir"
-Write-Host "Models: $(Join-Path $ProjectRoot 'results\models_gpu')"
+Write-Host "Models: $(Join-Path $ProjectRoot "results\models_$RunDevice")"

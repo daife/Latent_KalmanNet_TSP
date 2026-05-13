@@ -26,9 +26,41 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-如果需要安装指定 CUDA 版本的 PyTorch，请先在已激活的 conda 环境中按 PyTorch 官网命令安装 `torch`，再执行 `python -m pip install -r requirements.txt`。例如 CPU 版本可直接使用上面的命令；GPU 版本应按本机 CUDA/驱动选择对应的 PyTorch 安装命令。
+`requirements.txt` 不固定 PyTorch 版本。请在已激活的项目内 conda 环境中按机器选择安装：
+
+```powershell
+# CPU 版本
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# GPU 版本示例，请按本机 CUDA/驱动选择 PyTorch 官网给出的命令
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
 
 > 注意：`PendulumGeneration_new.py` 使用了 `Image.ANTIALIAS`，该符号在 Pillow 10 中被移除，所以 `requirements.txt` 将 Pillow 限制在 `<10.0`。
+
+## 自动复现脚本
+
+仓库提供了 PowerShell 脚本封装论文复现流程，会重新生成数据、从头训练 Latent-KalmanNet，并把日志、模型和图保存到 `logs/`、`results/models_gpu/`、`results/figures/gpu/`。脚本不会加载或回退到 `KNetLatent_models/` 中已有的 KNet 权重。
+
+GPU 完整复现：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\reproduce_paper_gpu.ps1
+```
+
+允许 CPU 运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\reproduce_paper_gpu.ps1 -AllowCpu
+```
+
+默认训练 `300` epoch，与论文设置一致；调试时可临时改小：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\reproduce_paper_gpu.ps1 -AllowCpu -Epochs 10
+```
+
+Matplotlib 保存 `.eps` 时可能产生 “PostScript backend does not support transparency” 警告。脚本已经把该警告从 stderr 中过滤，不应再被 PowerShell/Conda profile 包装成 `conda.exe : ... NativeCommandError`。如果仍从某些机器的 PowerShell 启动配置中看到 Conda 相关报错，请确认命令中包含 `-NoProfile`。
 
 ## 实验数据
 
