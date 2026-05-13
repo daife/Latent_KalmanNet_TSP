@@ -4,3 +4,4 @@ logs/
 results/
 __pycache__/
 /*.eps
+Encoder/Lorenz/Test_Long_Trajectories_with_prior/

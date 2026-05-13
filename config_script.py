@@ -5,7 +5,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 def yaml_configuration(path):
-    with open(path, "r") as stream:
+    with open(path, "r", encoding="utf-8-sig") as stream:
       try:
         param_dict = yaml.safe_load(stream)
       except yaml.YAMLError as exc:

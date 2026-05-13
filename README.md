@@ -48,10 +48,18 @@ GPU 完整复现：
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\reproduce_paper_gpu.ps1
 ```
 
+也可以使用包装脚本，自动带上 `-NoProfile`：
+
+```powershell
+.\scripts\reproduce_paper_gpu.cmd
+```
+
 允许 CPU 运行：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\reproduce_paper_gpu.ps1 -AllowCpu
+# 或
+.\scripts\reproduce_paper_gpu.cmd -AllowCpu
 ```
 
 默认训练 `300` epoch，与论文设置一致；调试时可临时改小：

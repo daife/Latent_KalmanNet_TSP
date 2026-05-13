@@ -39,6 +39,16 @@ Write-Host "The script will not load or fall back to pretrained checkpoints unde
 Write-Host "Dataset generation steps overwrite matching files under ./Simulations."
 Write-Host "Using Python executable: $PythonExe"
 
+function Set-Utf8NoBomFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Value
+    )
+
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Value, $encoding)
+}
+
 function Invoke-ProjectPython {
     param(
         [Parameter(Mandatory = $true)][string[]]$Arguments,
@@ -154,7 +164,7 @@ wd_kalman : 0.01
 batch_size : 16
 epoches : $Epochs
 "@
-    Set-Content -LiteralPath $ConfigPath -Value $yaml -Encoding UTF8
+    Set-Utf8NoBomFile -Path $ConfigPath -Value $yaml
 }
 
 function Set-LorenzTaylorOrder {
@@ -162,7 +172,7 @@ function Set-LorenzTaylorOrder {
 
     $content = Get-Content -LiteralPath $ModelLorenzPath -Raw
     $content = [regex]::Replace($content, "(?m)^J\s*=\s*\d+\s*$", "J=$J")
-    Set-Content -LiteralPath $ModelLorenzPath -Value $content -Encoding UTF8
+    Set-Utf8NoBomFile -Path $ModelLorenzPath -Value $content
 }
 
 function Ensure-LorenzEncoderAliases {
@@ -173,9 +183,9 @@ function Ensure-LorenzEncoderAliases {
         throw "Missing Lorenz baseline encoder directory: $source"
     }
 
-    if (-not (Test-Path $target)) {
-        New-Item -ItemType Directory -Force -Path $target | Out-Null
-        Copy-Item -LiteralPath (Join-Path $source "*") -Destination $target -Recurse -Force
+    New-Item -ItemType Directory -Force -Path $target | Out-Null
+    Get-ChildItem -LiteralPath $source -File | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $target $_.Name) -Force
     }
 }
 
@@ -242,7 +252,7 @@ np.savez(
 print("Saved Pendulum Baseline data under Simulations/Pendulum")
 '@
     $tempScript = Join-Path $ProjectRoot "scripts\_generate_pendulum_baseline.py"
-    Set-Content -LiteralPath $tempScript -Value $script -Encoding UTF8
+    Set-Utf8NoBomFile -Path $tempScript -Value $script
     try {
         Invoke-ProjectPython -LogName "generate_pendulum_baseline" -Arguments @($tempScript)
     }

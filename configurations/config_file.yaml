@@ -1,4 +1,4 @@
-﻿########### Data #########################################
+########### Data #########################################
 dataset_name : "Lorenz"          # "Lorenz" , "Pendulum"
 sinerio : "Baseline"             # "Baseline", "Decimation", "Test_Long_Trajectories"
 data_gen_flag : True            # True - Generating Dataset. False - Loading Dataset
