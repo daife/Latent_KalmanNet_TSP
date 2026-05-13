@@ -3,3 +3,4 @@ Simulations/
 logs/
 results/
 __pycache__/
+/*.eps

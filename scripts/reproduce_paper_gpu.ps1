@@ -39,8 +39,29 @@ function Invoke-ProjectPython {
     Push-Location $ProjectRoot
     try {
         $env:MPLBACKEND = "Agg"
-        & conda run --no-capture-output --prefix $EnvPath python @Arguments 1> $stdout 2> $stderr
-        if ($LASTEXITCODE -ne 0) {
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & conda run --no-capture-output --prefix $EnvPath python @Arguments 1> $stdout 2> $stderr
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+
+        if ($exitCode -eq 0 -and (Test-Path $stderr)) {
+            $realErrors = Get-Content $stderr | Where-Object {
+                $_ -and
+                $_ -notmatch "The PostScript backend does not support transparency" -and
+                $_ -notmatch "partially transparent artists will be rendered opaque"
+            }
+            if ($realErrors) {
+                Write-Host "Warnings from ${LogName}:"
+                $realErrors | Select-Object -Last 20
+            }
+        }
+
+        if ($exitCode -ne 0) {
             Write-Host "FAILED: $LogName"
             if (Test-Path $stderr) { Get-Content $stderr -Tail 80 }
             if (Test-Path $stdout) { Get-Content $stdout -Tail 80 }
