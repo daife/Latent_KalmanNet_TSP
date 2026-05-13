@@ -62,6 +62,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\reproduce_paper_gp
 .\scripts\reproduce_paper_gpu.cmd -AllowCpu
 ```
 
+复用已经生成的数据，只补缺失的 `.npz`：
+
+```powershell
+.\scripts\reproduce_paper_gpu.cmd -AllowCpu -ReuseGeneratedData
+```
+
 默认训练 `300` epoch，与论文设置一致；调试时可临时改小：
 
 ```powershell

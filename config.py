@@ -1,5 +1,5 @@
 ##########  config  ##########
-import torch, random, math
+import torch, random, math, os
 from datetime import datetime # getting current time
 from pathlib import Path
 from main_AE import Encoder_conv, Encoder_conv_with_prior
@@ -200,24 +200,29 @@ path_for_observations = str(Path(folder_simulations) / f'observations_q2_{real_q
 ###############################################################################################
 
 ################# Architecture knet ################################
-if real_r2 == 0.5:
-    prior_r2 = 4
+datagen_only = data_gen_flag and os.environ.get("LATENT_KNET_DATAGEN_ONLY") == "1"
 
-if prior_flag:
-    model_encoder_trained = Encoder_conv_with_prior(d)
-    sinerio = sinerio+"_with_prior"
-    path_enc = str(Path(folder_encoder_model) / sinerio / '{}_Only_encoder_r={}_prior={}.pt'.format(dataset_name, real_r2, prior_r2))
-    model_encoder_trained.load_state_dict(torch_load_compat(path_enc, weights_only=True),strict=False)
-    path_KNetLatent_trained = folder_KNetLatent_models + 'KNetLatent_optimal_' + dataset_name + '_' + sinerio + '_' + 'fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
-else:
-    model_encoder_trained = Encoder_conv(d)
-    if "Decimation" in sinerio:
-      model_encoder_trained.load_state_dict(torch_load_compat(folder_encoder_model + sinerio + '/' + dataset_name + '_Only_encoder_r={}.pt'.format(real_r2), weights_only=True),strict=False)
-      path_KNetLatent_trained = folder_KNetLatent_models + 'KNetLatent_optimal_' + dataset_name + '_' + sinerio + '_fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
+if not datagen_only:
+    if dataset_name == "Lorenz" and sinerio == "Decimation":
+        prior_r2 = 3
+    elif real_r2 == 0.5:
+        prior_r2 = 4
+
+    if prior_flag:
+        model_encoder_trained = Encoder_conv_with_prior(d)
+        sinerio = sinerio+"_with_prior"
+        path_enc = str(Path(folder_encoder_model) / sinerio / '{}_Only_encoder_r={}_prior={}.pt'.format(dataset_name, real_r2, prior_r2))
+        model_encoder_trained.load_state_dict(torch_load_compat(path_enc, weights_only=True),strict=False)
+        path_KNetLatent_trained = folder_KNetLatent_models + 'KNetLatent_optimal_' + dataset_name + '_' + sinerio + '_' + 'fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
     else:
-      path_enc = str(Path(folder_encoder_model) / sinerio / '{}_Only_encoder_r={}.pt'.format(dataset_name, real_r2))
-      model_encoder_trained.load_state_dict(torch_load_compat(path_enc, weights_only=True),strict=False)
-      path_KNetLatent_trained = folder_KNetLatent_models + 'KNetLatent_optimal_' + dataset_name + '_' + 'Baseline_fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
+        model_encoder_trained = Encoder_conv(d)
+        if "Decimation" in sinerio:
+          model_encoder_trained.load_state_dict(torch_load_compat(folder_encoder_model + sinerio + '/' + dataset_name + '_Only_encoder_r={}.pt'.format(real_r2), weights_only=True),strict=False)
+          path_KNetLatent_trained = folder_KNetLatent_models + 'KNetLatent_optimal_' + dataset_name + '_' + sinerio + '_fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
+        else:
+          path_enc = str(Path(folder_encoder_model) / sinerio / '{}_Only_encoder_r={}.pt'.format(dataset_name, real_r2))
+          model_encoder_trained.load_state_dict(torch_load_compat(path_enc, weights_only=True),strict=False)
+          path_KNetLatent_trained = folder_KNetLatent_models + 'KNetLatent_optimal_' + dataset_name + '_' + 'Baseline_fix_enc_' + str(int(fix_encoder_flag)) + '_r_' + str(real_r2) + '.pt'
 
-if load_KNetLatent_trained:
-  path_KNetLatent_trained = resolve_knet_checkpoint(path_KNetLatent_trained)
+    if load_KNetLatent_trained:
+      path_KNetLatent_trained = resolve_knet_checkpoint(path_KNetLatent_trained)

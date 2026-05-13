@@ -4,6 +4,7 @@ param(
     [double[]]$LorenzNoiseValues = @(0.5, 0.1, 0.01, 0.0),
     [double[]]$PendulumNoiseValues = @(0.9, 0.4, 0.1, 0.01),
     [switch]$SkipDataGeneration,
+    [switch]$ReuseGeneratedData,
     [switch]$SkipTraining,
     [switch]$SkipPendulum,
     [switch]$SkipLorenz,
@@ -36,7 +37,12 @@ New-Item -ItemType Directory -Force -Path `
 
 Write-Host "KNet checkpoints will be trained from scratch and saved under $ModelRoot."
 Write-Host "The script will not load or fall back to pretrained checkpoints under ./KNetLatent_models."
-Write-Host "Dataset generation steps overwrite matching files under ./Simulations."
+if ($ReuseGeneratedData) {
+    Write-Host "Dataset generation reuses existing files under ./Simulations and generates only missing files."
+}
+else {
+    Write-Host "Dataset generation steps overwrite matching files under ./Simulations."
+}
 Write-Host "Using Python executable: $PythonExe"
 
 function Set-Utf8NoBomFile {
@@ -189,6 +195,20 @@ function Ensure-LorenzEncoderAliases {
     }
 }
 
+function Test-LorenzDataExists {
+    param([Parameter(Mandatory = $true)][string]$Scenario)
+
+    $statePath = Join-Path $ProjectRoot "Simulations\Lorenz\states_q2_0.1_$Scenario.npz"
+    $obsPath = Join-Path $ProjectRoot "Simulations\Lorenz\observations_q2_0.1_$Scenario.npz"
+    return ((Test-Path $statePath) -and (Test-Path $obsPath))
+}
+
+function Test-PendulumDataExists {
+    $statePath = Join-Path $ProjectRoot "Simulations\Pendulum\states_q2_0.001_Baseline.npz"
+    $obsPath = Join-Path $ProjectRoot "Simulations\Pendulum\observations_q2_0.001_Baseline.npz"
+    return ((Test-Path $statePath) -and (Test-Path $obsPath))
+}
+
 function Copy-MainVisualFigures {
     param([Parameter(Mandatory = $true)][string]$Tag)
 
@@ -264,9 +284,14 @@ print("Saved Pendulum Baseline data under Simulations/Pendulum")
 function Generate-LorenzData {
     param([Parameter(Mandatory = $true)][string]$Scenario)
 
+    if ($ReuseGeneratedData -and (Test-LorenzDataExists -Scenario $Scenario)) {
+        Write-Host "Reusing existing Lorenz $Scenario data under ./Simulations/Lorenz."
+        return
+    }
+
     $tag = "generate_lorenz_$($Scenario.ToLower())"
     Set-ExperimentConfig -Dataset "Lorenz" -Scenario $Scenario -GenerateData $true -RealR2 $LorenzNoiseValues[0] -ModelFolder $ModelRoot
-    Invoke-ProjectPython -LogName $tag -Arguments @("-u", "-c", "import config")
+    Invoke-ProjectPython -LogName $tag -Arguments @("-u", "-c", "import os; os.environ['LATENT_KNET_DATAGEN_ONLY']='1'; import config")
 }
 
 function Train-MainVisual {
@@ -326,7 +351,12 @@ if (-not $SkipLorenz) {
 
 if (-not $SkipPendulum) {
     if (-not $SkipDataGeneration) {
-        Ensure-PendulumBaselineData
+        if ($ReuseGeneratedData -and (Test-PendulumDataExists)) {
+            Write-Host "Reusing existing Pendulum Baseline data under ./Simulations/Pendulum."
+        }
+        else {
+            Ensure-PendulumBaselineData
+        }
     }
 
     if (-not $SkipTraining) {
